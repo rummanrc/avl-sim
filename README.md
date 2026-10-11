@@ -1,6 +1,6 @@
 # Tokyo Drive — Teltonika AVL playground
 
-A low-poly 3D driving game around Shibuya, Tokyo, plus a separate Teltonika TCP receiver with persistent trip history, interactive map trails and driving-event detection. Node.js **22 or later** is required; no dependency installation or API key is needed.
+A low-poly 3D driving game with an original sports coupe around Shibuya, Tokyo, plus a separate Teltonika TCP receiver with persistent trip history, interactive map trails and driving-event detection. Node.js **22 or later** is required; no dependency installation or API key is needed.
 
 ## Start both programs
 
@@ -37,7 +37,7 @@ Use `PORT=9001 npm start` to change the game HTTP port. Use `RECEIVER_PORT=9000 
 - **A / D / left / right**: steer. **Space**: handbrake.
 - **Hold Shift** or the **Nitro** button: boost to **160 km/h**, consuming a five-second charge. It recharges while not boosting; release Shift to rearm after depletion. Normal driving is capped at 80 km/h; releasing boost slows excess speed gradually.
 - **I**: ignition on/off. **P**: pause. **C**: camera. **R**: return the car to its starting road.
-- **M** or **Sound on/off**: mute/unmute the procedural engine, road, tyre, nitro, collision and checkpoint sounds. Audio begins after a driving click/key, follows engine speed, and silences while paused or the page is in the background. The sound preference is remembered in this browser. No audio files or extra dependencies are downloaded.
+- **M** or **Sound on/off**: mute/unmute the procedural engine, road, tyre, nitro, collision and checkpoint sounds. The coupe has a deep, throaty procedural exhaust note with virtual gear shifts. Audio begins after a driving click/key, follows engine speed, and silences while paused or the page is in the background. The sound preference is remembered in this browser. No audio files or extra dependencies are downloaded.
 - Touch controls appear on narrow screens. Three checkpoints offer a small exploration challenge.
 
 For an event test, connect while the engine is off, turn it on, hold Shift for 2–3 seconds on a clear road, press Space, then turn the engine off. With default receiver thresholds, this produces speeding, harsh acceleration and harsh braking.

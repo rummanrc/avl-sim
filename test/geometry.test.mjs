@@ -5,9 +5,19 @@ import clipping from '../scripts/polygon-clipping.cjs';
 import {boundsOf,createCollisionTester,sweptClear,carFootprint,SpatialIndex,project,roadWidths,roadCorridor,distance} from '../web/geometry.js';
 import {prepareMap} from '../scripts/prepare-map.mjs';
 import {advanceCar} from '../web/driving.js';
+import {makeSportsCar} from '../web/sports-car.js';
+import {Box3} from '../web/vendor/three.module.js';
 const bounds={minX:-1000,maxX:1000,minZ:-1000,maxZ:1000};
 const building=(points,holes=[])=>({points,rings:[points,...holes],...boundsOf(points)});
 const square=(x1,z1,x2,z2)=>[{x:x1,z:z1},{x:x2,z:z1},{x:x2,z:z2},{x:x1,z:z2}];
+test('Sports coupe including steered and rolling wheels stays inside the driving collider',()=>{
+  const {car,wheels}=makeSportsCar(),footprint=boundsOf(carFootprint({x:0,z:0,angle:0}));
+  for(const steer of [-.32,0,.32])for(const roll of [0,Math.PI/4,Math.PI/2]){
+    for(const wheel of wheels){wheel.steering.rotation.y=wheel.front?steer:0;wheel.roll.rotation.x=roll;}
+    const box=new Box3().setFromObject(car,true);
+    assert.ok(box.min.x>=footprint.minX&&box.max.x<=footprint.maxX&&box.min.z>=footprint.minZ&&box.max.z<=footprint.maxZ,'Every rendered part must fit the swept collision footprint');
+  }
+});
 test('Full car footprint collides even when its center is outside a building',()=>{const collision=createCollisionTester([building(square(1,-5,10,5))],bounds);assert.equal(collision({x:0,z:0,angle:0}),true);assert.equal(collision({x:-2,z:0,angle:0}),false);});
 test('Rotated corners and an edge crossing a thin wall are detected',()=>{const collision=createCollisionTester([building(square(2.2,-1,3,-.6))],bounds);assert.equal(collision({x:0,z:0,angle:Math.PI/4}),true);const crossing=createCollisionTester([building(square(-10,-.01,10,.01))],bounds);assert.equal(crossing({x:0,z:0,angle:0}),true);});
 test('Swept movement prevents tunneling through a thin wall at nitro speed',()=>{const collision=createCollisionTester([building(square(-10,-.02,10,.02))],bounds);const from={x:0,z:5,angle:0},to={x:0,z:-5,angle:0};assert.equal(collision(from),false);assert.equal(collision(to),false);assert.equal(sweptClear(from,to,collision),false);});

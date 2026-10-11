@@ -1,5 +1,6 @@
 import * as T from './vendor/three.module.js';
 import {advanceCar} from './driving.js';
+import {makeSportsCar} from './sports-car.js';
 import {project,unproject,distance,roadWidths,pointInRing as inPoly,boundsOf,createCollisionTester} from './geometry.js';
 export {project,unproject,distance} from './geometry.js';
 export function nearestSegment(point,segments) {
@@ -72,10 +73,7 @@ export function makeWorld(canvas,data) {
   }
   // Start on an actual main road near the crossing, heading along its geometry.
   const spawn=nearestSegment({x:-35,z:65},segments.filter(s=>s.width>=12));
-  const car=new T.Group();
-  function box(w,h,d,color,x,y,z){const m=new T.Mesh(new T.BoxGeometry(w,h,d),new T.MeshLambertMaterial({color}));m.position.set(x,y,z);car.add(m);return m;}
-  box(1.85,.7,4,0xe66c3c,0,.85,0);box(1.58,.65,1.9,0xb7cec9,0,1.5,-.2);box(1.64,.12,1.6,0xe66c3c,0,1.88,-.15);box(1.75,.16,.15,0xf3e3bb,0,.95,-2.01);box(1.65,.13,.13,0xa33b29,0,1,2.01);
-  const wheels=[];for(const x of [-.92,.92])for(const z of [-1.25,1.2]){const wheel=new T.Mesh(new T.CylinderGeometry(.37,.37,.25,8),new T.MeshLambertMaterial({color:0x354038}));wheel.rotation.z=Math.PI/2;wheel.position.set(x,.45,z);car.add(wheel);wheels.push(wheel);}
+  const {car,wheels}=makeSportsCar();
   scene.add(car);
   const shadow=new T.Mesh(new T.CircleGeometry(2.5,16),new T.MeshBasicMaterial({color:0x3a4430,transparent:true,opacity:.16,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.scale.x=.6;shadow.position.y=.22;scene.add(shadow);
   const checkpoint=new T.Group();const ring=new T.Mesh(new T.TorusGeometry(4,.4,6,32),new T.MeshBasicMaterial({color:0xe77740}));ring.rotation.x=Math.PI/2;ring.position.y=.35;checkpoint.add(ring);const marker=new T.Mesh(new T.OctahedronGeometry(1.3),new T.MeshLambertMaterial({color:0xee8852}));marker.position.y=7;checkpoint.add(marker);scene.add(checkpoint);
@@ -86,11 +84,13 @@ export function makeWorld(canvas,data) {
   const goals=[['Shibuya Crossing',[139.70045,35.6595]],['Jinnan side streets',[139.7003,35.6631]],['The edge of Yoyogi',[139.6975,35.6663]]].map(([name,p])=>({name,...nearestSegment(project(p),segments).point}));
   let goal=0,uiTick=0,onGoal=()=>{},lastSurface=spawn;
   const resize=()=>{const {width,height}=canvas.getBoundingClientRect();renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();};new ResizeObserver(resize).observe(canvas);resize();
-  camera.position.set(state.x-Math.sin(state.angle)*18,11,state.z+Math.cos(state.angle)*18);
+  camera.position.set(state.x-Math.sin(state.angle)*12,6.5,state.z+Math.cos(state.angle)*12);
   const collision=createCollisionTester(buildings,bounds);
   let onDrivingEvent=()=>{},onImpact=()=>{},eventType=0,eventDuration=0,eventSent=false;
   function update(dt,keys) {
     const {clear,oldSpeed}=advanceCar(state,dt,keys,collision);
+    const steering=Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
+    for(const wheel of wheels){wheel.roll.rotation.x-=state.speed*dt/.33;wheel.steering.rotation.y=wheel.front?-steering*.32:0;}
     if(!clear&&Math.abs(oldSpeed)>2)onImpact(oldSpeed);
     if(state.paused||!state.ignition){eventType=0;eventDuration=0;eventSent=false;return;}
     const type=clear&&Math.max(Math.abs(oldSpeed),Math.abs(state.speed))*3.6>=10?(state.acceleration>4?1:state.acceleration<-3?2:0):0;
@@ -103,8 +103,8 @@ export function makeWorld(canvas,data) {
   }
   function render() {
     car.position.set(state.x,.15,state.z);car.rotation.y=-state.angle;shadow.position.x=state.x;shadow.position.z=state.z;
-    const target=state.cityView?new T.Vector3(state.x+65,135,state.z+110):new T.Vector3(state.x-Math.sin(state.angle)*18,11,state.z+Math.cos(state.angle)*18);
-    camera.position.lerp(target,.07);camera.lookAt(state.x+Math.sin(state.angle)*12,1,state.z-Math.cos(state.angle)*12);
+    const target=state.cityView?new T.Vector3(state.x+65,135,state.z+110):new T.Vector3(state.x-Math.sin(state.angle)*12,6.5,state.z+Math.cos(state.angle)*12);
+    camera.position.lerp(target,.07);camera.lookAt(state.x+Math.sin(state.angle)*7,1,state.z-Math.cos(state.angle)*7);
     scene.fog.near=state.cityView?300:170;scene.fog.far=state.cityView?1000:470;
     if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=.012;}else checkpoint.visible=false;
     renderer.render(scene,camera);
