@@ -38,14 +38,14 @@ test('A new obstacle blocks the run without moving through it',()=>{
   const run=new AutonomousRun(route,{distanceMetres:500}),state={...route.points[0],speed:5,odometer:0,ignition:true},before={...state};run.advance(state,1/60,()=>true);assert.equal(run.blocked,true);assert.equal(state.x,before.x);assert.equal(state.z,before.z);assert.equal(run.travelled,0);assert.equal(state.speed,0);
 });
 test('Long trips reuse connected road loops and remain clear on the actual map',()=>{
-  const long=planRoute(segments,start,20000,collides,2);assert.ok(long.length>=20000);for(let at=0;at<=20000;at+=2)assert.equal(collides(routePose(long,at)),false);
+  const long=planRoute(segments,start,100000,collides,2);assert.ok(long.length>=100000);for(let at=0;at<=100000;at+=10)assert.equal(collides(routePose(long,at)),false);
 });
 test('Road graph excludes narrow roads and prunes dead ends',()=>{
   const p=[{x:0,z:0},{x:20,z:0},{x:20,z:20},{x:0,z:20}],roads=p.map((a,i)=>({a,b:p[(i+1)%4],width:9}));roads.push({a:p[0],b:{x:-20,z:0},width:9},{a:p[0],b:{x:-20,z:20},width:7});const graph=buildRoadGraph(roads);assert.equal(graph.size,4);assert.ok([...graph.values()].every(n=>n.edges.length===2));
 });
 test('Rounded route changes heading continuously across north, and rejects invalid run settings',()=>{
   const curve=smoothRoadPath([{x:-1,z:20},{x:0,z:0},{x:1,z:-20}]);for(let i=1;i<curve.points.length;i++)assert.ok(Math.abs(curve.points[i].angle-curve.points[i-1].angle)<.2);
-  for(const options of [{distanceMetres:0},{distanceMetres:21000},{distanceMetres:100,events:['braking']},{distanceMetres:500,events:['unknown']},{distanceMetres:500,events:['braking','braking']},{distanceMetres:500,speedLimit:NaN}])assert.throws(()=>validateRun(options));
+  for(const options of [{distanceMetres:0},{distanceMetres:100001},{distanceMetres:100,events:['braking']},{distanceMetres:500,events:['unknown']},{distanceMetres:500,events:['braking','braking']},{distanceMetres:500,speedLimit:NaN}])assert.throws(()=>validateRun(options));
   assert.throws(()=>planRoute([{a:{x:0,z:0},b:{x:10,z:0},width:9}],start,500,()=>false),/connected road loop/);
 });
 test('Autonomous calm GPS stream forms a completed receiver trip with no events',()=>{

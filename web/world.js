@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.js';
 import {advanceCar} from './driving.js';
 import {makeSportsCar} from './sports-car.js';
+import {damping,smoothHeading} from './presentation.js';
 import {AutonomousRun,planRoute,validateRun,angleDifference} from './autonomous.js';
 import {project,unproject,distance,roadWidths,pointInRing as inPoly,boundsOf,createCollisionTester} from './geometry.js';
 export {project,unproject,distance} from './geometry.js';
@@ -86,11 +87,13 @@ export function makeWorld(canvas,data) {
   let goal=0,uiTick=0,onGoal=()=>{},lastSurface=spawn;
   const resize=()=>{const {width,height}=canvas.getBoundingClientRect();renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();};new ResizeObserver(resize).observe(canvas);resize();
   camera.position.set(state.x-Math.sin(state.angle)*12,6.5,state.z+Math.cos(state.angle)*12);
+  let viewHeading=state.angle,carHeading=state.angle,previousRender=performance.now(),snapView=true;
+  const cameraTarget=new T.Vector3(),aim=new T.Vector3(),aimTarget=new T.Vector3();
   const collision=createCollisionTester(buildings,bounds);
   let onDrivingEvent=()=>{},onImpact=()=>{},eventType=0,eventDuration=0,eventSent=false;
   function update(dt,keys,run=null) {
     const oldAngle=state.angle,{clear,oldSpeed}=run?run.advance(state,dt,collision):advanceCar(state,dt,keys,collision);
-    const steering=run?Math.max(-1,Math.min(1,angleDifference(state.angle,oldAngle)/Math.max(.001,dt)*2)):Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
+    const steering=run?Math.max(-1,Math.min(1,angleDifference(state.angle,oldAngle)/Math.max(.001,dt)*2)):(state.steering??0);
     for(const wheel of wheels){if(!state.paused)wheel.roll.rotation.x-=state.speed*dt/.33;wheel.steering.rotation.y=wheel.front?-steering*.32:0;}
     if(!clear&&Math.abs(oldSpeed)>2)onImpact(oldSpeed);
     if(state.paused||!state.ignition){if(!run||!state.ignition){eventType=0;eventDuration=0;eventSent=false;}return;}
@@ -102,14 +105,22 @@ export function makeWorld(canvas,data) {
     if(!run&&lastSurface.distance>lastSurface.width/2+3)state.speed*=.98;
     if(goal<goals.length&&distance(state,goals[goal])<18){goal++;onGoal(goal);}
   }
-  function render() {
-    car.position.set(state.x,.15,state.z);car.rotation.y=-state.angle;shadow.position.x=state.x;shadow.position.z=state.z;
-    const target=state.cityView?new T.Vector3(state.x+65,135,state.z+110):new T.Vector3(state.x-Math.sin(state.angle)*12,6.5,state.z+Math.cos(state.angle)*12);
-    camera.position.lerp(target,.07);camera.lookAt(state.x+Math.sin(state.angle)*7,1,state.z-Math.cos(state.angle)*7);
+  function render(scale=1) {
+    const now=performance.now(),dt=Math.min(.1,Math.max(0,(now-previousRender)/1000)),pace=Math.sqrt(scale);previousRender=now;
+    if(snapView){viewHeading=carHeading=state.angle;}
+    viewHeading=smoothHeading(viewHeading,state.angle,dt,.20/pace);
+    carHeading=smoothHeading(carHeading,state.angle,dt,.055/pace);
+    // Presentation smoothing must still keep the coupe clear of buildings.
+    if(collision({...state,angle:carHeading}))carHeading=state.angle;
+    car.position.set(state.x,.15,state.z);car.rotation.y=-carHeading;shadow.position.x=state.x;shadow.position.z=state.z;
+    cameraTarget.set(state.x+(state.cityView?65:-Math.sin(viewHeading)*12),state.cityView?135:6.5,state.z+(state.cityView?110:Math.cos(viewHeading)*12));
+    aimTarget.set(state.x+Math.sin(viewHeading)*5,1,state.z-Math.cos(viewHeading)*5);
+    if(snapView){camera.position.copy(cameraTarget);aim.copy(aimTarget);snapView=false;}
+    camera.position.lerp(cameraTarget,damping(dt,.14/pace));aim.lerp(aimTarget,damping(dt,.065/pace));camera.lookAt(aim);
     scene.fog.near=state.cityView?300:170;scene.fog.far=state.cityView?1000:470;
-    if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=.012;}else checkpoint.visible=false;
+    if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=dt*.72;}else checkpoint.visible=false;
     renderer.render(scene,camera);
   }
   function createRun(options){options=validateRun(options);return new AutonomousRun(planRoute(segments,start,options.distanceMetres,collision,Math.floor(Math.random()*1e9)),options);}
-  return {state,segments,walks,buildings,bounds,goals,update,render,createRun,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},set onImpact(fn){onImpact=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
+  return {state,segments,walks,buildings,bounds,goals,update,render,createRun,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},set onImpact(fn){onImpact=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false,steering:0});snapView=true;},renderer};
 }

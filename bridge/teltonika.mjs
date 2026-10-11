@@ -9,6 +9,7 @@ export class TeltonikaClient {
   }
   async connect() {
     this.socket=net.createConnection({host:this.host,port:this.port});
+    this.socket.setKeepAlive(true,30000);
     this.socket.on('data',chunk=>{this.buffer=Buffer.concat([this.buffer,chunk]);this.flush();});
     this.socket.on('error',error=>this.fail(error));
     this.socket.on('close',()=>this.fail(Error('Receiver disconnected')));

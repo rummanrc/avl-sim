@@ -18,7 +18,7 @@ In another terminal:
 npm start
 ```
 
-Open **http://localhost:8787** for the car. Leave the destination as `localhost:5027` to use the bundled receiver; the sample IMEI is `356307042441013`. Click **Connect & send AVL**, turn the engine on, drive, then turn it off. The receiver dashboard shows the completed trip, its trail, speed and event markers. Different IMEIs have separate histories. To use your existing receiver instead, change the destination host/port and enter an IMEI it accepts.
+Open **http://localhost:8787** for the car. Leave the destination as `localhost:5027` to use the bundled receiver; the sample IMEI is `356307042441013`. Click **Connect & send AVL**, turn the engine on, drive, then turn it off. Click **Send now** to flush the completed trip immediately, or wait for the configured upload interval. The receiver dashboard shows the completed trip, its trail, speed and event markers. Different IMEIs have separate histories. To use your existing receiver instead, change the destination host/port and enter an IMEI it accepts.
 
 | Command | Purpose |
 |---|---|
@@ -44,13 +44,34 @@ For an event test, connect while the engine is off, turn it on, hold Shift for 2
 
 ## Autonomous trips
 
-Under the game, choose **0.1–20 km** and click **Start autonomous trip**. Leave all event boxes unchecked for a calm run, or select **Harsh acceleration**, **Speeding** and/or **Harsh braking**. Each selection runs once. Events require at least **0.5 km**; higher speed thresholds need longer trips, and the form reports the required minimum. Match the **test speed limit** to the receiver rule (default **60 km/h**).
+Under the game, choose **0.1–100 km** and click **Start autonomous trip**. Leave all event boxes unchecked for a calm run, or select **Harsh acceleration**, **Speeding** and/or **Harsh braking**. Each selection runs once. Events require at least **0.5 km**; higher speed thresholds need longer trips, and the form reports the required minimum. Match the **test speed limit** to the receiver rule (default **60 km/h**).
 
 This is a scripted road-following simulator. It builds a graph from the bundled OSM roads, prunes dead ends and narrow streets, rounds junctions, and checks the full car footprint along the route before starting. Long trips repeat a connected road loop within the small map. Every moving frame still checks collision. It starts a new trip near the Shibuya starting road, records an ignition-off baseline, turns the engine on, drives the requested route distance, decelerates, then turns the engine off. The dashboard odometer remains cumulative; autonomous progress shows the distance for this run. A running manual trip is ended before the new autonomous trip begins.
 
 Calm runs cruise at up to **35 km/h**, below the chosen test threshold, with acceleration up to **1.8 m/s²**, braking up to **1.5 m/s²**, and lower approach speeds for bends. Selected harsh tests use **6 m/s²** acceleration and **8 m/s²** braking. Speeding accelerates gently to **20 km/h above the test limit**, holds briefly, and returns to cruise. These profiles trigger the default receiver rules; custom receiver thresholds can change which events it detects. Events are measured from the actual simulated motion and use the same GPS/AVL and Green Driving event stream as manual driving. An extra sample at the scenario peak helps receivers see the event even with a long normal sampling interval.
 
-**Pause / P** holds position, progress and autonomous sampling; resume continues the same trip. Switching browser tabs pauses it automatically until you return, so keep the game tab visible while a run is in progress. **Stop trip** or ignition-off ends the trip early. Driving keys or touch controls take over manually and keep the same trip open; turn the engine off to finish it. Reset ends the autonomous trip before relocating the car. Receiver delivery status remains visible, and local JSON recording works without a receiver.
+**Pause / P** holds position, progress and autonomous sampling; resume continues the same trip. Switching browser tabs pauses it automatically until you return, so keep the game tab visible while a run is in progress. **Stop trip** or ignition-off ends the trip early. Driving keys or touch controls take over manually and keep the same trip open; turn the engine off to finish it. Reset ends the autonomous trip before relocating the car. Receiver delivery status remains visible, and local JSON recording and buffering work without a receiver.
+
+## Device timing and faster test data
+
+**Device timing** separates acquisition from transmission, using independent engine-on/off profiles. Defaults are:
+
+| Profile | Collect every | Upload every |
+|---|---|---|
+| Engine on | 2 simulated seconds | 300 simulated seconds (5 minutes) |
+| Engine off | 300 simulated seconds (5 minutes) | 3600 simulated seconds (1 hour) |
+
+Choose **Live** for 2-second driving uploads, **Device** for the above batching at real time, or **Fast test** for the same device profile at **12×**. Customize each interval from **1–86,400 seconds** and simulation speed from **1–30×**, then click **Apply timing**. At **6×**, ten real minutes produces one simulated hour; at **12×**, five real minutes does. Use long autonomous runs (up to **100 km**) for extended driving data.
+
+The same accelerated clock drives physics, GPS timestamps, event durations, and collection/upload deadlines. Physics still uses 60 Hz substeps in simulated time, so speed and acceleration remain consistent with GPS positions and timestamps. Fast mode also accelerates car motion; autonomous driving is easier than manual control at high multipliers. The clock starts at page load and may advance into future wall-clock timestamps during accelerated runs; the current AVL date/time is displayed.
+
+Ignition transitions and driving events are captured immediately in addition to scheduled samples, and wait for the next upload batch. Changing ignition switches profile and resets both deadlines. The **pending** counter and simulated/real countdowns show what is buffered and when it will upload. Ending a trip switches to the engine-off schedule, so click **Send now** to view its completed history immediately. Connecting also flushes the existing backlog. Manual sends reset the current upload deadline.
+
+Collection works offline; pending records survive delivery errors and disconnect/reconnect in the same tab. Uploads split into packets of at most ten records, stay below the 1280-byte profile limit, and retain acquisition timestamps. Records leave the buffer only after a complete receiver ACK. To retry a failed upload, disconnect and reconnect. Once a buffer is associated with an IMEI, that IMEI is held until its pending records have been acknowledged. The buffer holds 100,000 records; a full buffer pauses the simulation until uploads free space. Local JSON keeps the latest 100,000 points and includes the active timing settings.
+
+**Pause** and hidden tabs hold driving, the simulated clock, and collection; uploads already in flight may finish. Keep the game visible for accelerated runs. Background bridge heartbeats are HTTP-only and do not create fake AVL records; authenticated receiver connections support long idle upload periods. Browser recordings and pending records are held in memory and cleared on refresh. Export before reloading.
+
+The chase camera uses elapsed-time smoothing for both its position and aim, car heading eases through turns, and keyboard steering eases in/out. Smoothed car poses still pass the full building collision check. No camera shake effect is added.
 
 ## Trip history and rules
 
@@ -77,7 +98,7 @@ History and rules are saved in `receiver/data/history.ndjson` (ignored by Git). 
 
 The OSM extract is preserved in `web/data/shibuya.json`. `scripts/prepare-map.mjs` subtracts rendered road and sidewalk corridors from building polygons, keeping remaining parts and courtyard holes in `world.json`. The 3D view and collision system use the same prepared polygons. Collision tests include the whole rotated car rectangle and sample its swept path at 25 cm intervals; blocked moves retain the previous position and heading. The bundled-map regression test checks that building footprints do not overlap any driving corridor.
 
-The browser uses a same-origin Node bridge to open a persistent TCP connection. It sends the length-prefixed ASCII IMEI and waits for acceptance, then sends Codec 8/8E packets and validates four-byte record-count acknowledgements. Count mismatches retry the identical packet up to three times. A bounded queue preserves ignition and event records while a packet is in flight. Delivery failures stop transmission and are visible in the UI; disconnect/reconnect to retry. There is no automatic offline replay, and unacknowledged records remain available in the browser's local JSON export. The browser journey itself is in memory and is cleared on refresh.
+The browser uses a same-origin Node bridge to open a persistent TCP connection. It sends the length-prefixed ASCII IMEI and waits for acceptance, then sends Codec 8/8E packets and validates four-byte record-count acknowledgements. Count mismatches retry the identical packet up to three times. A bounded buffer preserves acquired records until they are acknowledged, including ignition and event records. Transmission follows the active engine profile; disconnect/reconnect or Send now flushes the backlog. Delivery failures stop transmission and retain pending records. The browser journey and upload buffer are in memory and cleared on refresh.
 
 Records contain UTC Unix milliseconds, real projected Shibuya coordinates encoded at 1e-7 degrees, speed in km/h, heading in degrees, synthetic altitude **32 m**, synthetic **12 satellites**, ignition IO **239**, movement IO **240**, odometer IO **16** in metres, and optional driving event IO **253/254**. The export is a normalized custom JSON schema, not an unspecified third-party simulator's input schema. This is not full FMC125 firmware: CAN/OBD, cellular state, UDP, Codec 12 commands, traffic and terrain elevation are not emulated. One-way roads and left-side lane discipline are not enforced.
 

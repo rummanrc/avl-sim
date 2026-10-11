@@ -25,6 +25,7 @@ const server=http.createServer(async(req,res)=> {
       const session=sessions.get(data.session);
       if(!session)return reply(400,{error:'Session expired; reconnect to the receiver'});
       session.last=Date.now();
+      if(url.pathname==='/api/heartbeat'){if(session.client.closed){sessions.delete(data.session);return reply(400,{error:'Receiver disconnected; reconnect to retry pending records'});}return reply(200,{connected:true});}
       if(url.pathname==='/api/disconnect'){session.client.close();sessions.delete(data.session);return reply(200,{connected:false});}
       if(url.pathname==='/api/send') {
         try{return reply(200,await session.client.send(data.records));}
@@ -39,6 +40,8 @@ const server=http.createServer(async(req,res)=> {
     const file=await readFile(path);res.writeHead(200,{'Content-Type':types[extname(path)]||'application/octet-stream'});res.end(file);
   }catch(e){reply(e.code==='ENOENT'?404:400,{error:e.message});}
 });
-const sweep=setInterval(()=>{for(const [id,s]of sessions)if(Date.now()-s.last>120000){s.client.close();sessions.delete(id);}},30000);sweep.unref();
+// The longest configurable upload period is 24h at 1×. Background browser
+// throttling must not expire an otherwise healthy device between uploads.
+const sweep=setInterval(()=>{for(const [id,s]of sessions)if(s.client.closed||Date.now()-s.last>26*3600000){s.client.close();sessions.delete(id);}},30000);sweep.unref();
 server.listen(port,'127.0.0.1',()=>console.log(`Tokyo Drive ready at http://localhost:${port}`));
 process.on('SIGINT',()=>{for(const s of sessions.values())s.client.close();server.close();process.exit(0);});

@@ -10,7 +10,9 @@ export function advanceCar(state,dt,keys,collides){state.nitroActive=false;if(st
   else{const drag=(.8+Math.abs(state.speed)*.05)*dt;state.speed=Math.sign(state.speed)*Math.max(0,Math.abs(state.speed)-drag);}
   state.nitroCharge=Math.max(0,Math.min(1,state.nitroCharge+(state.nitroActive?-.2:.08)*dt));if(state.nitroCharge===0)state.nitroDepleted=true;
   const cap=nitro?44.44:Math.max(22.22,oldSpeed-(.8+Math.abs(oldSpeed)*.05)*dt);state.speed=Math.max(-5,Math.min(cap,state.speed));
-  const steer=Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
+  const input=Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
+  // Ease key presses and releases rather than instantly reversing the wheel.
+  const steer=(state.steering??0)+(input-(state.steering??0))*(1-Math.exp(-dt/.10));state.steering=steer;
   const angle=state.angle+steer*state.speed/2.8*Math.tan(.43)*dt/(1+Math.abs(state.speed)*.09),next={x:state.x+Math.sin(angle)*state.speed*dt,z:state.z-Math.cos(angle)*state.speed*dt,angle};
   const clear=sweptClear(state,next,collides);if(clear){state.odometer+=distance(state,next);Object.assign(state,next);}else{state.speed=0;state.nitroActive=false;}
   state.acceleration=(Math.abs(state.speed)-Math.abs(oldSpeed))/dt;return {clear,oldSpeed};

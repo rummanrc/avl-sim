@@ -6,7 +6,7 @@ const lerp=(a,b,t)=>({x:a.x+(b.x-a.x)*t,z:a.z+(b.z-a.z)*t});
 const eventNames={speeding:'Speeding',acceleration:'Harsh acceleration',braking:'Harsh braking'};
 
 export function validateRun({distanceMetres,events=[],speedLimit=60}) {
-  if(!Number.isFinite(distanceMetres)||distanceMetres<100||distanceMetres>20000)throw Error('Choose a distance between 0.1 and 20 km.');
+  if(!Number.isFinite(distanceMetres)||distanceMetres<100||distanceMetres>100000)throw Error('Choose a distance between 0.1 and 100 km.');
   if(!Number.isFinite(speedLimit)||speedLimit<40||speedLimit>120)throw Error('Choose a test speed limit between 40 and 120 km/h.');
   if(!Array.isArray(events)||events.some(e=>!Object.hasOwn(eventNames,e))||new Set(events).size!==events.length)throw Error('Choose each supported event at most once.');
   const peak=(speedLimit+20)/3.6,cruise=Math.min(35,speedLimit-10)/3.6;
