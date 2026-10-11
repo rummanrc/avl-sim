@@ -42,6 +42,16 @@ Use `PORT=9001 npm start` to change the game HTTP port. Use `RECEIVER_PORT=9000 
 
 For an event test, connect while the engine is off, turn it on, hold Shift for 2–3 seconds on a clear road, press Space, then turn the engine off. With default receiver thresholds, this produces speeding, harsh acceleration and harsh braking.
 
+## Autonomous trips
+
+Under the game, choose **0.1–20 km** and click **Start autonomous trip**. Leave all event boxes unchecked for a calm run, or select **Harsh acceleration**, **Speeding** and/or **Harsh braking**. Each selection runs once. Events require at least **0.5 km**; higher speed thresholds need longer trips, and the form reports the required minimum. Match the **test speed limit** to the receiver rule (default **60 km/h**).
+
+This is a scripted road-following simulator. It builds a graph from the bundled OSM roads, prunes dead ends and narrow streets, rounds junctions, and checks the full car footprint along the route before starting. Long trips repeat a connected road loop within the small map. Every moving frame still checks collision. It starts a new trip near the Shibuya starting road, records an ignition-off baseline, turns the engine on, drives the requested route distance, decelerates, then turns the engine off. The dashboard odometer remains cumulative; autonomous progress shows the distance for this run. A running manual trip is ended before the new autonomous trip begins.
+
+Calm runs cruise at up to **35 km/h**, below the chosen test threshold, with acceleration up to **1.8 m/s²**, braking up to **1.5 m/s²**, and lower approach speeds for bends. Selected harsh tests use **6 m/s²** acceleration and **8 m/s²** braking. Speeding accelerates gently to **20 km/h above the test limit**, holds briefly, and returns to cruise. These profiles trigger the default receiver rules; custom receiver thresholds can change which events it detects. Events are measured from the actual simulated motion and use the same GPS/AVL and Green Driving event stream as manual driving. An extra sample at the scenario peak helps receivers see the event even with a long normal sampling interval.
+
+**Pause / P** holds position, progress and autonomous sampling; resume continues the same trip. Switching browser tabs pauses it automatically until you return, so keep the game tab visible while a run is in progress. **Stop trip** or ignition-off ends the trip early. Driving keys or touch controls take over manually and keep the same trip open; turn the engine off to finish it. Reset ends the autonomous trip before relocating the car. Receiver delivery status remains visible, and local JSON recording works without a receiver.
+
 ## Trip history and rules
 
 A complete trip has an observed **off → on → off** ignition sequence (IO 239). Its time and trail start at ignition-on and end at the next ignition-off; the preceding off observation is retained as `previousOffAt`. Ignition-off idle records do not create trips. A first record with the engine already on creates a trip marked **start not observed**. Disconnecting does not finish a trip. Trips with missing ignition values retain their last known ignition state. Records are ordered by AVL timestamp, and exact retransmissions are deduplicated; late records rebuild the history in time order.

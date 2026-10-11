@@ -1,6 +1,7 @@
 import * as T from './vendor/three.module.js';
 import {advanceCar} from './driving.js';
 import {makeSportsCar} from './sports-car.js';
+import {AutonomousRun,planRoute,validateRun,angleDifference} from './autonomous.js';
 import {project,unproject,distance,roadWidths,pointInRing as inPoly,boundsOf,createCollisionTester} from './geometry.js';
 export {project,unproject,distance} from './geometry.js';
 export function nearestSegment(point,segments) {
@@ -87,18 +88,18 @@ export function makeWorld(canvas,data) {
   camera.position.set(state.x-Math.sin(state.angle)*12,6.5,state.z+Math.cos(state.angle)*12);
   const collision=createCollisionTester(buildings,bounds);
   let onDrivingEvent=()=>{},onImpact=()=>{},eventType=0,eventDuration=0,eventSent=false;
-  function update(dt,keys) {
-    const {clear,oldSpeed}=advanceCar(state,dt,keys,collision);
-    const steering=Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
-    for(const wheel of wheels){wheel.roll.rotation.x-=state.speed*dt/.33;wheel.steering.rotation.y=wheel.front?-steering*.32:0;}
+  function update(dt,keys,run=null) {
+    const oldAngle=state.angle,{clear,oldSpeed}=run?run.advance(state,dt,collision):advanceCar(state,dt,keys,collision);
+    const steering=run?Math.max(-1,Math.min(1,angleDifference(state.angle,oldAngle)/Math.max(.001,dt)*2)):Number(keys.has('ArrowRight')||keys.has('KeyD'))-Number(keys.has('ArrowLeft')||keys.has('KeyA'));
+    for(const wheel of wheels){if(!state.paused)wheel.roll.rotation.x-=state.speed*dt/.33;wheel.steering.rotation.y=wheel.front?-steering*.32:0;}
     if(!clear&&Math.abs(oldSpeed)>2)onImpact(oldSpeed);
-    if(state.paused||!state.ignition){eventType=0;eventDuration=0;eventSent=false;return;}
+    if(state.paused||!state.ignition){if(!run||!state.ignition){eventType=0;eventDuration=0;eventSent=false;}return;}
     const type=clear&&Math.max(Math.abs(oldSpeed),Math.abs(state.speed))*3.6>=10?(state.acceleration>4?1:state.acceleration<-3?2:0):0;
     if(type!==eventType){eventType=type;eventDuration=0;eventSent=false;}
     eventDuration+=dt;
     if(type&&eventDuration>=.2&&!eventSent){eventSent=true;onDrivingEvent({type,acceleration:Math.abs(state.acceleration)});}
     uiTick++;if(uiTick%10===0){lastSurface=nearestSegment(state,segments);state.road=lastSurface.distance<lastSurface.width/2+3?lastSurface.name:'Off the road';}
-    if(lastSurface.distance>lastSurface.width/2+3)state.speed*=.98;
+    if(!run&&lastSurface.distance>lastSurface.width/2+3)state.speed*=.98;
     if(goal<goals.length&&distance(state,goals[goal])<18){goal++;onGoal(goal);}
   }
   function render() {
@@ -109,5 +110,6 @@ export function makeWorld(canvas,data) {
     if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=.012;}else checkpoint.visible=false;
     renderer.render(scene,camera);
   }
-  return {state,segments,walks,buildings,bounds,goals,update,render,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},set onImpact(fn){onImpact=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
+  function createRun(options){options=validateRun(options);return new AutonomousRun(planRoute(segments,start,options.distanceMetres,collision,Math.floor(Math.random()*1e9)),options);}
+  return {state,segments,walks,buildings,bounds,goals,update,render,createRun,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},set onImpact(fn){onImpact=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
 }
