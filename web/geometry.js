@@ -1,0 +1,18 @@
+export const ORIGIN=[139.7016,35.6595],LAT_M=111320,LON_M=111320*Math.cos(ORIGIN[1]*Math.PI/180);
+export const project=([lon,lat])=>({x:(lon-ORIGIN[0])*LON_M,z:-(lat-ORIGIN[1])*LAT_M});
+export const unproject=({x,z})=>({longitude:ORIGIN[0]+x/LON_M,latitude:ORIGIN[1]-z/LAT_M});
+export const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+export const roadWidths={motorway:24,trunk:22,primary:20,secondary:16,tertiary:12,residential:9,unclassified:9,living_street:7,service:7};
+export function boundsOf(points){return {minX:Math.min(...points.map(p=>p.x)),maxX:Math.max(...points.map(p=>p.x)),minZ:Math.min(...points.map(p=>p.z)),maxZ:Math.max(...points.map(p=>p.z))};}
+export function pointInRing(p,ring){let inside=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const a=ring[i],b=ring[j];if((a.z>p.z)!==(b.z>p.z)&&p.x<(b.x-a.x)*(p.z-a.z)/(b.z-a.z)+a.x)inside=!inside;}return inside;}
+export function pointInPolygon(p,rings){return pointInRing(p,rings[0])&&!rings.slice(1).some(r=>pointInRing(p,r));}
+function edgesIntersect(a,b,c,d){const cross=(p,q,r)=>(q.x-p.x)*(r.z-p.z)-(q.z-p.z)*(r.x-p.x);const on=(p,q,r)=>Math.abs(cross(p,q,r))<1e-8&&r.x>=Math.min(p.x,q.x)-1e-8&&r.x<=Math.max(p.x,q.x)+1e-8&&r.z>=Math.min(p.z,q.z)-1e-8&&r.z<=Math.max(p.z,q.z)+1e-8;const u=cross(a,b,c),v=cross(a,b,d),w=cross(c,d,a),x=cross(c,d,b);return (u*v<0&&w*x<0)||on(a,b,c)||on(a,b,d)||on(c,d,a)||on(c,d,b);}
+export function polygonsOverlap(rect,rings){if(rect.some(p=>pointInPolygon(p,rings))||rings[0].some(p=>pointInRing(p,rect)))return true;for(const ring of rings)for(let i=0;i<ring.length;i++)for(let j=0;j<rect.length;j++)if(edgesIntersect(ring[i],ring[(i+1)%ring.length],rect[j],rect[(j+1)%rect.length]))return true;return false;}
+export function carFootprint(p){const f={x:Math.sin(p.angle),z:-Math.cos(p.angle)},r={x:Math.cos(p.angle),z:Math.sin(p.angle)};return [[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>({x:p.x+a*r.x*1.12+b*f.x*2.22,z:p.z+a*r.z*1.12+b*f.z*2.22}));}
+export class SpatialIndex {
+  constructor(items,size=40){this.size=size;this.cells=new Map();for(const item of items){const b=item.bounds||item;for(let x=Math.floor(b.minX/size);x<=Math.floor(b.maxX/size);x++)for(let z=Math.floor(b.minZ/size);z<=Math.floor(b.maxZ/size);z++){const key=x+','+z;if(!this.cells.has(key))this.cells.set(key,[]);this.cells.get(key).push(item);}}}
+  query(b){const items=new Set();for(let x=Math.floor(b.minX/this.size);x<=Math.floor(b.maxX/this.size);x++)for(let z=Math.floor(b.minZ/this.size);z<=Math.floor(b.maxZ/this.size);z++)for(const item of this.cells.get(x+','+z)||[])items.add(item);return [...items].filter(p=>{const box=p.bounds||p;return box.maxX>=b.minX&&box.minX<=b.maxX&&box.maxZ>=b.minZ&&box.minZ<=b.maxZ;});}
+}
+export function createCollisionTester(buildings,bounds){const index=new SpatialIndex(buildings);return pose=>{const rect=carFootprint(pose),b=boundsOf(rect);if(b.minX<bounds.minX||b.maxX>bounds.maxX||b.minZ<bounds.minZ||b.maxZ>bounds.maxZ)return true;return index.query(b).some(building=>polygonsOverlap(rect,building.rings||[building.points]));};}
+export function sweptClear(from,to,collides){const steps=Math.max(1,Math.ceil(distance(from,to)/.25),Math.ceil(Math.abs(to.angle-from.angle)/.025));for(let i=1;i<=steps;i++){const t=i/steps;if(collides({x:from.x+(to.x-from.x)*t,z:from.z+(to.z-from.z)*t,angle:from.angle+(to.angle-from.angle)*t}))return false;}return true;}
+export function roadCorridor(s){const angle=Math.atan2(s.b.z-s.a.z,s.b.x-s.a.x),radius=s.width/2+1.9,ring=[];for(const [p,start]of [[s.a,angle+Math.PI/2],[s.b,angle-Math.PI/2]])for(let i=0;i<=12;i++){const a=start+i*Math.PI/12;ring.push([p.x+Math.cos(a)*radius,p.z+Math.sin(a)*radius]);}ring.push(ring[0]);return ring;}

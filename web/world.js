@@ -1,8 +1,7 @@
 import * as T from './vendor/three.module.js';
-export const ORIGIN=[139.7016,35.6595],LAT_M=111320,LON_M=111320*Math.cos(ORIGIN[1]*Math.PI/180);
-export const project=([lon,lat])=>({x:(lon-ORIGIN[0])*LON_M,z:-(lat-ORIGIN[1])*LAT_M});
-export const unproject=({x,z})=>({longitude:ORIGIN[0]+x/LON_M,latitude:ORIGIN[1]-z/LAT_M});
-export const distance=(a,b)=>Math.hypot(a.x-b.x,a.z-b.z);
+import {advanceCar} from './driving.js';
+import {project,unproject,distance,roadWidths,pointInRing as inPoly,boundsOf,createCollisionTester} from './geometry.js';
+export {project,unproject,distance} from './geometry.js';
 export function nearestSegment(point,segments) {
   let nearest={distance:Infinity};
   for(const s of segments) {
@@ -12,13 +11,6 @@ export function nearestSegment(point,segments) {
     if(d<nearest.distance)nearest={...s,point:p,distance:d};
   }
   return nearest;
-}
-function inPoly(p,poly) {
-  let inside=false;
-  for(let i=0,j=poly.length-1;i<poly.length;j=i++) {
-    const a=poly[i],b=poly[j];if((a.z>p.z)!==(b.z>p.z)&&p.x<(b.x-a.x)*(p.z-a.z)/(b.z-a.z)+a.x)inside=!inside;
-  }
-  return inside;
 }
 function merge(geos) {
   const ps=[],ns=[];
@@ -42,7 +34,6 @@ export function makeWorld(canvas,data) {
   const sun=new T.DirectionalLight(0xfff2d6,1.6);sun.position.set(-200,400,120);scene.add(sun);
   const ground=new T.Mesh(new T.PlaneGeometry(3600,3600),new T.MeshLambertMaterial({color:0xbfc5ae}));ground.rotation.x=-Math.PI/2;ground.position.y=-.2;scene.add(ground);
   const segments=[],walks=[],buildings=[],buildingGroups=Array.from({length:6},()=>[]),colors=[0xe0d7bd,0xb6bba6,0xc4bfac,0xd6c4b2,0xa6b3a4,0xdcd7c7];
-  const roadWidths={motorway:24,trunk:22,primary:20,secondary:16,tertiary:12,residential:9,unclassified:9,living_street:7,service:7};
   const min=project([data.bbox[1],data.bbox[2]]),max=project([data.bbox[3],data.bbox[0]]);
   const bounds={minX:min.x,maxX:max.x,minZ:min.z,maxZ:max.z};
   for(const way of data.ways) {
@@ -54,14 +45,14 @@ export function makeWorld(canvas,data) {
     if(tags.leisure==='park'||['grass','forest','recreation_ground'].includes(tags.landuse)) {
       if(points.length<4)continue;const shape=new T.Shape(points.map(p=>new T.Vector2(p.x,-p.z)));const mesh=new T.Mesh(new T.ShapeGeometry(shape),new T.MeshLambertMaterial({color:0x9cae8b,side:T.DoubleSide}));mesh.rotation.x=-Math.PI/2;mesh.position.y=.03;scene.add(mesh);
     }
-    if(tags.building && points.length>=4) {
-      const xs=points.map(p=>p.x),zs=points.map(p=>p.z),box={minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)};
-      if(box.maxX<bounds.minX||box.minX>bounds.maxX||box.maxZ<bounds.minZ||box.minZ>bounds.maxZ)continue;
-      const h=Math.max(3,Math.min(100,parseFloat(tags.height)||parseFloat(tags['building:levels'])*3.2||6+(way.id%8)*3));
-      const shape=new T.Shape(points.map(p=>new T.Vector2(p.x,-p.z)));
-      const geometry=new T.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false,steps:1,curveSegments:1});geometry.rotateX(-Math.PI/2);buildingGroups[way.id%6].push(geometry);
-      buildings.push({points,...box});
-    }
+  }
+  for(const building of data.buildings) {
+    const {rings,tags,id}=building,points=rings[0],box=boundsOf(points);
+    const h=Math.max(3,Math.min(100,parseFloat(tags.height)||parseFloat(tags['building:levels'])*3.2||6+(id%8)*3));
+    const shape=new T.Shape(points.map(p=>new T.Vector2(p.x,-p.z)));
+    for(const hole of rings.slice(1))shape.holes.push(new T.Path(hole.map(p=>new T.Vector2(p.x,-p.z))));
+    const geometry=new T.ExtrudeGeometry(shape,{depth:h,bevelEnabled:false,steps:1,curveSegments:1});geometry.rotateX(-Math.PI/2);buildingGroups[id%6].push(geometry);
+    buildings.push({points,rings,...box});
   }
   strips(segments,3,.04,0xd8d4be,scene);strips(segments,0,.18,0x6e776d,scene);strips(walks,0,.10,0xd9d5c1,scene);strips(segments,0,.23,0xd8d1ab,scene,true);
   const joints=new Map();for(const s of segments)for(const p of [s.a,s.b]){const key=p.x.toFixed(2)+','+p.z.toFixed(2);if(!joints.has(key)||joints.get(key).width<s.width)joints.set(key,{...p,width:s.width});}
@@ -88,7 +79,7 @@ export function makeWorld(canvas,data) {
   scene.add(car);
   const shadow=new T.Mesh(new T.CircleGeometry(2.5,16),new T.MeshBasicMaterial({color:0x3a4430,transparent:true,opacity:.16,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.scale.x=.6;shadow.position.y=.22;scene.add(shadow);
   const checkpoint=new T.Group();const ring=new T.Mesh(new T.TorusGeometry(4,.4,6,32),new T.MeshBasicMaterial({color:0xe77740}));ring.rotation.x=Math.PI/2;ring.position.y=.35;checkpoint.add(ring);const marker=new T.Mesh(new T.OctahedronGeometry(1.3),new T.MeshLambertMaterial({color:0xee8852}));marker.position.y=7;checkpoint.add(marker);scene.add(checkpoint);
-  const state={x:spawn.point.x,z:spawn.point.z,angle:Math.atan2(spawn.b.x-spawn.a.x,-(spawn.b.z-spawn.a.z)),speed:0,odometer:0,ignition:true,paused:false,cityView:false,road:spawn.name};
+  const state={x:spawn.point.x,z:spawn.point.z,angle:Math.atan2(spawn.b.x-spawn.a.x,-(spawn.b.z-spawn.a.z)),speed:0,odometer:0,ignition:false,nitroCharge:1,nitroActive:false,acceleration:0,paused:false,cityView:false,road:spawn.name};
   const firstTarget=project([139.70045,35.6595]);
   if(Math.sin(state.angle)*(firstTarget.x-state.x)-Math.cos(state.angle)*(firstTarget.z-state.z)<0)state.angle+=Math.PI;
   const start={x:state.x,z:state.z,angle:state.angle};
@@ -96,20 +87,15 @@ export function makeWorld(canvas,data) {
   let goal=0,uiTick=0,onGoal=()=>{},lastSurface=spawn;
   const resize=()=>{const {width,height}=canvas.getBoundingClientRect();renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();};new ResizeObserver(resize).observe(canvas);resize();
   camera.position.set(state.x-Math.sin(state.angle)*18,11,state.z+Math.cos(state.angle)*18);
-  function collision(p) {for(const b of buildings)if(p.x>b.minX-.8&&p.x<b.maxX+.8&&p.z>b.minZ-.8&&p.z<b.maxZ+.8&&inPoly(p,b.points))return true;return false;}
+  const collision=createCollisionTester(buildings,bounds);
+  let onDrivingEvent=()=>{},eventType=0,eventDuration=0,eventSent=false;
   function update(dt,keys) {
-    if(state.paused||!state.ignition){state.speed=0;return;}
-    const accel=(keys.has('ArrowUp')||keys.has('KeyW'))?1:0,reverse=(keys.has('ArrowDown')||keys.has('KeyS'))?1:0;
-    if(keys.has('Space'))state.speed*=.89;
-    else if(accel)state.speed+=((state.speed<0)?12:5)*dt;
-    else if(reverse)state.speed-=((state.speed>0)?12:3)*dt;
-    else {const drag=(.8+Math.abs(state.speed)*.05)*dt;state.speed=Math.sign(state.speed)*Math.max(0,Math.abs(state.speed)-drag);}
-    state.speed=Math.max(-5,Math.min(22.2,state.speed));
-    const steer=((keys.has('ArrowRight')||keys.has('KeyD'))?1:0)-((keys.has('ArrowLeft')||keys.has('KeyA'))?1:0);
-    state.angle+=steer*state.speed/2.8*Math.tan(.43)*dt/(1+Math.abs(state.speed)*.09);
-    const next={x:state.x+Math.sin(state.angle)*state.speed*dt,z:state.z-Math.cos(state.angle)*state.speed*dt};
-    if(next.x<bounds.minX+5||next.x>bounds.maxX-5||next.z<bounds.minZ+5||next.z>bounds.maxZ-5||collision(next)){state.speed=-state.speed*.12;return;}
-    state.odometer+=distance(state,next);state.x=next.x;state.z=next.z;
+    const {clear,oldSpeed}=advanceCar(state,dt,keys,collision);
+    if(state.paused||!state.ignition){eventType=0;eventDuration=0;eventSent=false;return;}
+    const type=clear&&Math.max(Math.abs(oldSpeed),Math.abs(state.speed))*3.6>=10?(state.acceleration>4?1:state.acceleration<-3?2:0):0;
+    if(type!==eventType){eventType=type;eventDuration=0;eventSent=false;}
+    eventDuration+=dt;
+    if(type&&eventDuration>=.2&&!eventSent){eventSent=true;onDrivingEvent({type,acceleration:Math.abs(state.acceleration)});}
     uiTick++;if(uiTick%10===0){lastSurface=nearestSegment(state,segments);state.road=lastSurface.distance<lastSurface.width/2+3?lastSurface.name:'Off the road';}
     if(lastSurface.distance>lastSurface.width/2+3)state.speed*=.98;
     if(goal<goals.length&&distance(state,goals[goal])<18){goal++;onGoal(goal);}
@@ -122,5 +108,5 @@ export function makeWorld(canvas,data) {
     if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=.012;}else checkpoint.visible=false;
     renderer.render(scene,camera);
   }
-  return {state,segments,walks,buildings,bounds,goals,update,render,get goal(){return goal;},set onGoal(fn){onGoal=fn;},reset(){Object.assign(state,start,{speed:0});},renderer};
+  return {state,segments,walks,buildings,bounds,goals,update,render,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
 }

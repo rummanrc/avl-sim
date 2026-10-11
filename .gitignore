@@ -3,3 +3,5 @@ dist/
 *.tar.gz
 .DS_Store
 .openai/*.local.*
+receiver/data/*
+!receiver/data/.gitkeep

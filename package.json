@@ -1,14 +1,18 @@
 {
   "name": "tokyo-avl-drive",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node bridge/server.mjs",
     "test": "node --test test/*.test.mjs",
     "build": "node scripts/build.mjs",
-    "map:refresh": "node scripts/fetch-map.mjs",
-    "receiver": "node scripts/demo-receiver.mjs"
+    "map:refresh": "node scripts/fetch-map.mjs && node scripts/prepare-map.mjs",
+    "receiver": "node receiver/server.mjs",
+    "receiver:demo": "node scripts/demo-receiver.mjs",
+    "map:prepare": "node scripts/prepare-map.mjs"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }
