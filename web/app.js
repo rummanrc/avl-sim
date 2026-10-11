@@ -57,7 +57,7 @@ function finishAuto(status='Complete · engine off'){
   if(!autoRun)return;autoSummary={distanceMetres:autoRun.distanceMetres,travelled:autoRun.travelled,events:autoRun.events,completedEvents:[...autoRun.completedEvents],status};autoRun=null;
   world.state.speed=0;world.state.acceleration=0;world.state.nitroActive=false;world.state.ignition=false;world.state.paused=false;visibilityPaused=false;keys.clear();$('pause').textContent='Ⅱ Pause';sound.ignition(false);sample(239);updateAuto();updateHud();toast(`${status}. ${(autoSummary.travelled/1000).toFixed(3)} km driven.`);
 }
-function takeManualControl(){if(!autoRun)return;autoSummary={distanceMetres:autoRun.distanceMetres,travelled:autoRun.travelled,events:autoRun.events,completedEvents:[...autoRun.completedEvents],status:'Manual control · trip continues'};autoRun=null;world.state.paused=false;visibilityPaused=false;$('pause').textContent='Ⅱ Pause';updateAuto();toast('Manual control. Turn the engine off to finish this trip.');}
+function takeManualControl(){if(!autoRun)return;autoSummary={distanceMetres:autoRun.distanceMetres,travelled:autoRun.travelled,events:autoRun.events,completedEvents:[...autoRun.completedEvents],status:'Manual control · autonomous mode stopped'};autoRun=null;world.state.paused=false;visibilityPaused=false;$('pause').textContent='Ⅱ Pause';updateAuto();toast('Manual control. Turn the engine off to finish this trip.');}
 $('auto-stop').addEventListener('click',()=>finishAuto('Stopped by driver'));
 $('auto-form').addEventListener('submit',e=>{
   e.preventDefault();if(!world||autoRun)return;
