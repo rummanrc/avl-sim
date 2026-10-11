@@ -1,7 +1,15 @@
 import {GameLoop} from './vendor/kontra.mjs';
 import {makeWorld,unproject,distance} from './world.js';
 import {encodePacket,hex} from './codec.js';
+import {DrivingAudio} from './audio.js';
 const $=id=>document.getElementById(id),keys=new Set();
+const sound=new DrivingAudio(()=>{
+  $('sound').textContent=sound.unavailable?'Sound unavailable':sound.enabled?'♫ Sound on':'♫ Sound off';
+  $('sound').setAttribute('aria-pressed',String(sound.enabled));$('sound').disabled=!!sound.unavailable;
+  $('sound').title=sound.enabled?'Mute driving sounds (M)':'Enable driving sounds (M)';
+  $('sound').dataset.audioState=sound.context?.state||'locked';
+});
+sound.onChange();
 let world,session=null,connecting=false,deliveryFailed=false,inFlight=false,acknowledged=0,recorded=[],timer,deliveryQueue=[],previewTick=0,lastRecord,toastTimer;
 const local=['localhost','127.0.0.1'].includes(location.hostname);
 function toast(message){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('show'),4000);}
@@ -31,17 +39,20 @@ $('connection-form').addEventListener('submit',async e=>{
   catch(e){setStatus('Connection failed',e.message,'error');activity(e.message,false);}
   finally{connecting=false;updateForm();}
 });
-function toggleIgnition(){if(!world)return;world.state.ignition=!world.state.ignition;world.state.speed=0;keys.clear();sample(239);updateHud();}
+function toggleIgnition(){if(!world)return;world.state.ignition=!world.state.ignition;world.state.speed=0;keys.clear();sound.ignition(world.state.ignition);sample(239);updateHud();}
 function togglePause(){if(!world)return;world.state.paused=!world.state.paused;world.state.speed=0;keys.clear();$('pause').textContent=world.state.paused?'▶ Resume':'Ⅱ Pause';toast(world.state.paused?'Driving paused. Telemetry continues with zero speed.':'Back on the road.');}
 function toggleCamera(){if(!world)return;world.state.cityView=!world.state.cityView;$('camera').innerHTML=`◈ <span>${world.state.cityView?'Chase view':'City view'}</span>`;}
 $('ignition').addEventListener('click',toggleIgnition);$('pause').addEventListener('click',togglePause);$('camera').addEventListener('click',toggleCamera);$('reset').addEventListener('click',()=>{world?.reset();toast('Car returned to the starting point.');});
+$('sound').addEventListener('click',()=>sound.toggle());
+// Audio is unlocked synchronously within a user gesture, never at page load.
+document.addEventListener('pointerdown',e=>{if(e.target.closest('#game-frame,#ignition,#pause,#sound')){sound.setBackground(false);void sound.unlock();}},true);
 $('help').addEventListener('click',()=>$('help-dialog').showModal());$('close-help').addEventListener('click',()=>$('help-dialog').close());
 $('export').addEventListener('click',()=>{if(!recorded.length){toast('Drive for a moment to record some points.');return;}const data={schema:'tokyo-drive-avl-v1',imei:$('imei').value,codec:$('codec').value,intervalMs:Number($('interval').value)*1000,exportedAt:new Date().toISOString(),records:recorded};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=`tokyo-drive-${$('imei').value}-${Date.now()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast(`Exported ${recorded.length} AVL records.`);});
 const drivingKeys=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD','Space','ShiftLeft','ShiftRight']);
-window.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||$('help-dialog').open)return;if(drivingKeys.has(e.code)){e.preventDefault();keys.add(e.code);}if(e.repeat)return;if(e.code==='KeyC')toggleCamera();if(e.code==='KeyI')toggleIgnition();if(e.code==='KeyP')togglePause();if(e.code==='KeyR')world?.reset();});
-window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(world)world.state.speed=0;});document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();if(world)world.state.speed=0;}});
+window.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||$('help-dialog').open)return;if(drivingKeys.has(e.code)||e.code==='KeyI'||e.code==='KeyM'){sound.setBackground(false);void sound.unlock();}if(drivingKeys.has(e.code)){e.preventDefault();keys.add(e.code);}if(e.repeat)return;if(e.code==='KeyC')toggleCamera();if(e.code==='KeyI')toggleIgnition();if(e.code==='KeyP')togglePause();if(e.code==='KeyR')world?.reset();if(e.code==='KeyM')sound.toggle();});
+window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();if(world)world.state.speed=0;sound.setBackground(true);});window.addEventListener('focus',()=>sound.setBackground(false));document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();if(world)world.state.speed=0;sound.setBackground(true);}else sound.setBackground(false);});
 for(const button of document.querySelectorAll('[data-key]')){button.addEventListener('pointerdown',e=>{e.preventDefault();button.setPointerCapture(e.pointerId);keys.add(button.dataset.key);});for(const event of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(event,()=>keys.delete(button.dataset.key));}
-function updateHud(){if(!world)return;const s=world.state,r=record(),speed=r.gps.speed;$('speed').textContent=speed;$('gear').textContent=s.speed<-.1?'R':speed>0?'D':'N';$('distance').innerHTML=`${(s.odometer/1000).toFixed(2)} <small>KM</small>`;$('latitude').textContent=r.gps.latitude.toFixed(6);$('longitude').textContent=r.gps.longitude.toFixed(6);$('heading').textContent=String(r.gps.angle).padStart(3,'0')+'°';$('movement').textContent=speed>0?'Moving':'Stationary';$('io-ignition').textContent=Number(s.ignition);$('ignition-label').textContent=s.ignition?'ENGINE ON':'ENGINE OFF';$('ignition-dot').style.background=s.ignition?'#a3c799':'#a88c77';$('ignition').textContent=s.ignition?'⏻ Engine on':'⏻ Engine off';$('road-name').textContent=s.road;$('nitro').classList.toggle('active',s.nitroActive);$('nitro-meter').style.width=(s.nitroCharge*100)+'%';$('nitro-charge').textContent=Math.round(s.nitroCharge*100)+'%';
+function updateHud(){if(!world)return;$('sound').dataset.outputLevel=sound.outputLevel.toFixed(5);const s=world.state,r=record(),speed=r.gps.speed;$('speed').textContent=speed;$('gear').textContent=s.speed<-.1?'R':speed>0?'D':'N';$('distance').innerHTML=`${(s.odometer/1000).toFixed(2)} <small>KM</small>`;$('latitude').textContent=r.gps.latitude.toFixed(6);$('longitude').textContent=r.gps.longitude.toFixed(6);$('heading').textContent=String(r.gps.angle).padStart(3,'0')+'°';$('movement').textContent=speed>0?'Moving':'Stationary';$('io-ignition').textContent=Number(s.ignition);$('ignition-label').textContent=s.ignition?'ENGINE ON':'ENGINE OFF';$('ignition-dot').style.background=s.ignition?'#a3c799':'#a88c77';$('ignition').textContent=s.ignition?'⏻ Engine on':'⏻ Engine off';$('road-name').textContent=s.road;$('nitro').classList.toggle('active',s.nitroActive);$('nitro-meter').style.width=(s.nitroCharge*100)+'%';$('nitro-charge').textContent=Math.round(s.nitroCharge*100)+'%';
   const current=world.goals[world.goal];$('mission-title').textContent=current?current.name:'Neighborhood explored!';$('mission-distance').textContent=current?`${Math.round(distance(s,current))} m away · find the orange marker`:'All three checkpoints found. Keep driving.';$('mission-count').textContent=`${String(Math.min(world.goal+1,3)).padStart(2,'0')} / 03`;
   if($('record-preview').parentElement.open){const preview=lastRecord||r;$('record-preview').textContent=JSON.stringify(preview,null,2);$('hex-preview').textContent=hex(encodePacket([preview],$('codec').value));}drawMinimap();
 }
@@ -51,8 +62,8 @@ function drawMinimap(){const canvas=$('minimap'),ctx=canvas.getContext('2d'),b=w
 if(local){$('receiver-link').href='http://localhost:8788';}else{$('receiver-link').href='receiver/';}
 if(!local)$('bridge-note').innerHTML='Hosted driving preview. For native TCP, run <code>npm start</code> and open <a href="http://localhost:8787">localhost:8787</a>.';
 try {
-  const response=await fetch('data/world.json');if(!response.ok)throw Error('Map extract could not be loaded');const data=await response.json();world=makeWorld($('game'),data);setupMinimap();world.onDrivingEvent=green=>{sample(253,green);toast(green.type===2?'Harsh braking · event sent':'Harsh acceleration · event sent');};world.onGoal=n=>toast(n===3?'All checkpoints found. Tokyo is yours.':`Checkpoint ${n} found. On to the next!`);
-  const loop=GameLoop({clearCanvas:false,context:document.createElement('canvas').getContext('2d'),update(dt){world.update(dt,keys);if(++previewTick%6===0)updateHud();},render(){world.render();}});loop.start();$('loading').classList.add('hidden');updateHud();sample();startSampling();
+  const response=await fetch('data/world.json');if(!response.ok)throw Error('Map extract could not be loaded');const data=await response.json();world=makeWorld($('game'),data);setupMinimap();world.onDrivingEvent=green=>{sample(253,green);toast(green.type===2?'Harsh braking · event sent':'Harsh acceleration · event sent');};world.onImpact=speed=>sound.impact(speed);world.onGoal=n=>{sound.checkpoint();toast(n===3?'All checkpoints found. Tokyo is yours.':`Checkpoint ${n} found. On to the next!`);};
+  const loop=GameLoop({clearCanvas:false,context:document.createElement('canvas').getContext('2d'),update(dt){world.update(dt,keys);sound.update(world.state,keys,dt);if(++previewTick%6===0)updateHud();},render(){world.render();}});loop.start();$('loading').classList.add('hidden');updateHud();sample();startSampling();
   // Read-only diagnostics help inspect simulation behavior in browser tools.
   window.tokyoDrive={get state(){return {...world.state};},get record(){return record();},get recordCount(){return recorded.length;},get acknowledged(){return acknowledged;},get renderStats(){return world.renderer.info.render;}};
 }catch(e){$('loading').textContent=`Unable to start: ${e.message}. A browser with WebGL 2 is required.`;setStatus('Game unavailable',e.message,'error');console.error(e);}

@@ -88,9 +88,10 @@ export function makeWorld(canvas,data) {
   const resize=()=>{const {width,height}=canvas.getBoundingClientRect();renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();};new ResizeObserver(resize).observe(canvas);resize();
   camera.position.set(state.x-Math.sin(state.angle)*18,11,state.z+Math.cos(state.angle)*18);
   const collision=createCollisionTester(buildings,bounds);
-  let onDrivingEvent=()=>{},eventType=0,eventDuration=0,eventSent=false;
+  let onDrivingEvent=()=>{},onImpact=()=>{},eventType=0,eventDuration=0,eventSent=false;
   function update(dt,keys) {
     const {clear,oldSpeed}=advanceCar(state,dt,keys,collision);
+    if(!clear&&Math.abs(oldSpeed)>2)onImpact(oldSpeed);
     if(state.paused||!state.ignition){eventType=0;eventDuration=0;eventSent=false;return;}
     const type=clear&&Math.max(Math.abs(oldSpeed),Math.abs(state.speed))*3.6>=10?(state.acceleration>4?1:state.acceleration<-3?2:0):0;
     if(type!==eventType){eventType=type;eventDuration=0;eventSent=false;}
@@ -108,5 +109,5 @@ export function makeWorld(canvas,data) {
     if(goals[goal]){checkpoint.visible=true;checkpoint.position.set(goals[goal].x,0,goals[goal].z);marker.rotation.y+=.012;}else checkpoint.visible=false;
     renderer.render(scene,camera);
   }
-  return {state,segments,walks,buildings,bounds,goals,update,render,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
+  return {state,segments,walks,buildings,bounds,goals,update,render,get goal(){return goal;},set onGoal(fn){onGoal=fn;},set onDrivingEvent(fn){onDrivingEvent=fn;},set onImpact(fn){onImpact=fn;},reset(){Object.assign(state,start,{speed:0,nitroActive:false});},renderer};
 }
