@@ -1,5 +1,6 @@
 import * as T from './vendor/three.module.js';
 import {advanceCar} from './driving.js';
+import {drivingTelemetry} from './telemetry.js';
 import {makeSportsCar} from './sports-car.js';
 import {damping,smoothHeading} from './presentation.js';
 import {AutonomousRun,planRoute,validateRun,angleDifference} from './autonomous.js';
@@ -91,16 +92,17 @@ export function makeWorld(canvas,data) {
   const cameraTarget=new T.Vector3(),aim=new T.Vector3(),aimTarget=new T.Vector3();
   const collision=createCollisionTester(buildings,bounds);
   let onDrivingEvent=()=>{},onImpact=()=>{},eventType=0,eventDuration=0,eventSent=false;
-  function update(dt,keys,run=null) {
+  function update(dt,keys,run=null,telemetryScale=1) {
     const oldAngle=state.angle,{clear,oldSpeed}=run?run.advance(state,dt,collision):advanceCar(state,dt,keys,collision);
     const steering=run?Math.max(-1,Math.min(1,angleDifference(state.angle,oldAngle)/Math.max(.001,dt)*2)):(state.steering??0);
     for(const wheel of wheels){if(!state.paused)wheel.roll.rotation.x-=state.speed*dt/.33;wheel.steering.rotation.y=wheel.front?-steering*.32:0;}
     if(!clear&&Math.abs(oldSpeed)>2)onImpact(oldSpeed);
     if(state.paused||!state.ignition){if(!run||!state.ignition){eventType=0;eventDuration=0;eventSent=false;}return;}
-    const type=clear&&Math.max(Math.abs(oldSpeed),Math.abs(state.speed))*3.6>=10?(state.acceleration>4?1:state.acceleration<-3?2:0):0;
+    const {speed,acceleration}=drivingTelemetry(state,telemetryScale);
+    const type=clear&&Math.max(Math.abs(oldSpeed)/telemetryScale,speed)*3.6>=10?(acceleration>4?1:acceleration<-3?2:0):0;
     if(type!==eventType){eventType=type;eventDuration=0;eventSent=false;}
-    eventDuration+=dt;
-    if(type&&eventDuration>=.2&&!eventSent){eventSent=true;onDrivingEvent({type,acceleration:Math.abs(state.acceleration)});}
+    eventDuration+=dt*telemetryScale;
+    if(type&&eventDuration>=.2&&!eventSent){eventSent=true;onDrivingEvent({type,acceleration:Math.abs(acceleration)});}
     uiTick++;if(uiTick%10===0){lastSurface=nearestSegment(state,segments);state.road=lastSurface.distance<lastSurface.width/2+3?lastSurface.name:'Off the road';}
     if(!run&&lastSurface.distance>lastSurface.width/2+3)state.speed*=.98;
     if(goal<goals.length&&distance(state,goals[goal])<18){goal++;onGoal(goal);}

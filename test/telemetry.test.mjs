@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DeviceClock,RecordBuffer,timingPresets,validateTiming} from '../web/telemetry.js';
+import {DeviceClock,RecordBuffer,timingPresets,validateTiming,simulationTiming,drivingTelemetry} from '../web/telemetry.js';
 import {advanceCar} from '../web/driving.js';
 import {smoothHeading} from '../web/presentation.js';
 import {encodePacket} from '../web/codec.js';
@@ -17,13 +17,56 @@ test('Engine off acquires every 5 minutes and uploads once per simulated hour',(
   for(let frame=0;frame<5*60*60;frame++)for(let i=0;i<12;i++){clock.step(1/60);if(clock.collectDue())acquired++;if(clock.sendDue())uploaded++;}
   assert.equal(acquired,12);assert.equal(uploaded,1);assert.equal(clock.timestamp,1700003600000);
 });
-test('Five minutes at 12× or ten at 6× generates a consistent hour of driving',()=>{
+test('Fully accelerated driving still generates a consistent hour at 6× and 12×',()=>{
   for(const scale of [6,12]){
     const clock=new DeviceClock({...timingPresets.fast,scale},1700000000000);clock.setIgnition(true);
     const state={x:0,z:0,angle:0,speed:0,ignition:true,odometer:0,nitroCharge:1},keys=new Set(['KeyW']);let collected=0,uploaded=0;
-    for(let frame=0;frame<3600/scale*60;frame++)for(let i=0;i<scale;i++){clock.step(1/60);advanceCar(state,1/60,keys,()=>false);if(clock.collectDue())collected++;if(clock.sendDue())uploaded++;}
+    const timing=simulationTiming(1/60,scale,true);
+    for(let frame=0;frame<3600/scale*60;frame++)for(let i=0;i<timing.steps;i++){clock.step(timing.clockDt);advanceCar(state,timing.drivingDt,keys,()=>false);if(clock.collectDue())collected++;if(clock.sendDue())uploaded++;}
     assert.equal(clock.timestamp,1700003600000);assert.equal(collected,1800);assert.equal(uploaded,12);assert.ok(state.odometer>79800&&state.odometer<80000);assert.ok(Math.abs(state.odometer+state.z)<1e-6);assert.ok(state.speed*3.6<80.01);
   }
+});
+test('Manual acceleration, steering, braking, reverse and nitro stay identical at 1×, 12× and 30×',()=>{
+  let baseline;
+  for(const scale of [1,12,30]){
+    const state={x:0,z:0,angle:0,speed:0,ignition:true,odometer:0,nitroCharge:1};
+    const clock=new DeviceClock({...timingPresets.fast,scale},1700000000000);clock.setIgnition(true);
+    const snapshots=[],timing=simulationTiming(1/60,scale);
+    for(const [frames,pressed]of [[480,['KeyW']],[60,['KeyW','KeyD']],[60,['KeyW','KeyA']],[120,['ShiftLeft']],[120,['Space']],[120,['KeyS']],[60,[]]]){
+      for(let frame=0;frame<frames;frame++)for(let i=0;i<timing.steps;i++){clock.step(timing.clockDt);advanceCar(state,timing.drivingDt,new Set(pressed),()=>false);}
+      snapshots.push({...state});
+    }
+    if(!baseline)baseline=snapshots;else assert.deepEqual(snapshots,baseline);
+    assert.ok(Math.abs(clock.elapsed-17*scale)<1e-7);
+  }
+});
+test('Manual fast driving keeps accelerated collection and uploads with GPS-consistent AVL speed',()=>{
+  for(const scale of [1,12,30]){
+    const clock=new DeviceClock({...timingPresets.fast,scale},1700000000000);clock.setIgnition(true);
+    const state={x:0,z:0,angle:0,speed:22.22,ignition:true,odometer:0,nitroCharge:1},timing=simulationTiming(1/60,scale);
+    let collected=0,uploaded=0,previous={elapsed:0,odometer:0};
+    for(let frame=0;frame<25*60;frame++){
+      clock.step(timing.clockDt);advanceCar(state,timing.drivingDt,new Set(['KeyW']),()=>false);
+      if(clock.collectDue()){
+        collected++;const telemetry=drivingTelemetry(state,timing.telemetryScale);
+        const gpsSpeed=(state.odometer-previous.odometer)/(clock.elapsed-previous.elapsed);
+        assert.ok(Math.abs(gpsSpeed-telemetry.speed)<1e-8);
+        assert.equal(telemetry.acceleration,0);previous={elapsed:clock.elapsed,odometer:state.odometer};
+      }
+      if(clock.sendDue())uploaded++;
+    }
+    assert.equal(collected,Math.floor(25*scale/2));assert.equal(uploaded,Math.floor(25*scale/300));
+    assert.ok(Math.abs(state.odometer-555.5)<1e-7);
+    assert.equal(clock.timestamp,1700000000000+25000*scale);
+  }
+});
+test('Manual event acceleration uses simulated time and switching to manual immediately restores normal movement',()=>{
+  const state={speed:24,acceleration:-22};
+  assert.deepEqual(drivingTelemetry(state,12),{speed:2,acceleration:-22/144});
+  assert.deepEqual(drivingTelemetry(state),{speed:24,acceleration:-22});
+  const timing=simulationTiming(1/60,12,true),manual=simulationTiming(1/60,12);
+  assert.equal(timing.steps*timing.drivingDt,12/60);assert.equal(manual.steps*manual.drivingDt,1/60);
+  assert.equal(timing.steps*timing.clockDt,manual.steps*manual.clockDt);
 });
 test('Profile changes and manual sends reset their deadlines without changing the clock',()=>{
   const clock=new DeviceClock();clock.step(10);clock.setIgnition(true);assert.equal(clock.nextCollect,12);assert.equal(clock.nextSend,310);clock.step(20);clock.sentNow();assert.equal(clock.nextSend,330);

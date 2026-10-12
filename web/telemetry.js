@@ -1,4 +1,4 @@
-// All deadlines are in simulated time. Physics uses the same clock.
+// All deadlines are in simulated time; manual driving uses real time.
 export const timingPresets={
   live:{collectOn:2,sendOn:2,collectOff:300,sendOff:3600,scale:1},
   device:{collectOn:2,sendOn:300,collectOff:300,sendOff:3600,scale:1},
@@ -11,6 +11,12 @@ export function validateTiming(settings){
   }
   if(!Number.isInteger(result.scale)||result.scale<1||result.scale>30)throw Error('Simulation speed must be 1–30×.');
   return result;
+}
+export function simulationTiming(dt,scale,autonomous=false){
+  return {steps:autonomous?scale:1,clockDt:autonomous?dt:dt*scale,drivingDt:dt,telemetryScale:autonomous?1:scale};
+}
+export function drivingTelemetry(state,scale=1){
+  return {speed:Math.abs(state.speed)/scale,acceleration:state.acceleration/(scale*scale)};
 }
 export class DeviceClock{
   constructor(settings=timingPresets.device,start=Date.now()){
